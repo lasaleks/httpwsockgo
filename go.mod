@@ -1,4 +1,4 @@
-module httpwsockgo
+module github.com/lasaleks/httpwsockgo
 
 go 1.23.4
 
