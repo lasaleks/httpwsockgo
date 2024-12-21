@@ -1,7 +1,6 @@
 package httpwsockgo
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -36,7 +35,7 @@ type Hub struct {
 	Clients map[*Client]bool
 
 	// Inbound messages from the clients.
-	Broadcast chan []byte
+	//Broadcast chan []byte
 
 	/*Msg        chan MsgChangeGPIO
 	MsgRequest chan MsgRequestData*/
@@ -50,8 +49,8 @@ type Hub struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		Mu:         sync.RWMutex{},
-		Broadcast:  make(chan []byte),
+		Mu: sync.RWMutex{},
+		//Broadcast:  make(chan []byte),
 		Register:   make(chan *Client),
 		Unregister: make(chan *Client),
 		Clients:    make(map[*Client]bool),
@@ -115,8 +114,9 @@ func (c *Client) readPump() {
 			}
 			break
 		}
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		c.hub.Broadcast <- message
+		log.Printf("httpwsock.read:%d", len(message))
+		//message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+		//c.hub.Broadcast <- message
 	}
 }
 
