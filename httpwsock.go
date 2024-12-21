@@ -1,4 +1,4 @@
-package httpwsock_go
+package httpwsockgo
 
 import (
 	"bytes"

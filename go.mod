@@ -1,4 +1,4 @@
-module httpwsock-go
+module httpwsockgo
 
 go 1.23.4
 
