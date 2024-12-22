@@ -44,16 +44,20 @@ type Hub struct {
 	Register chan *Client
 
 	// Unregister requests from clients.
-	Unregister chan *Client
+	Unregister       chan *Client
+	sizeBufferClient int
+	f_cb_nof_clients func(nof_clients int)
 }
 
-func NewHub() *Hub {
+func NewHub(size_buffer_client int, f_cb_no func(nof_clients int)) *Hub {
 	return &Hub{
 		Mu: sync.RWMutex{},
 		//Broadcast:  make(chan []byte),
-		Register:   make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients:    make(map[*Client]bool),
+		Register:         make(chan *Client),
+		Unregister:       make(chan *Client),
+		Clients:          make(map[*Client]bool),
+		sizeBufferClient: size_buffer_client,
+		f_cb_nof_clients: f_cb_no,
 	}
 }
 
@@ -180,14 +184,18 @@ func RequestsWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, 256), GET_ARG: r.URL.Query()}
+	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, hub.sizeBufferClient), GET_ARG: r.URL.Query()}
 
 	client.hub.Register <- client
 
-	// Allow collection of memory referenced by the caller by doing all work in
-	// new goroutines.
 	go client.writePump()
 	go client.readPump()
+}
+
+func (h *Hub) set_nof_clients(nof_clients int) {
+	if h.f_cb_nof_clients != nil {
+		h.f_cb_nof_clients(nof_clients)
+	}
 }
 
 func (h *Hub) Run(wg *sync.WaitGroup, ctx context.Context) {
@@ -198,21 +206,47 @@ func (h *Hub) Run(wg *sync.WaitGroup, ctx context.Context) {
 			return
 		case client := <-h.Register:
 			log.Printf("Register WSClient")
+			client_len := 0
 			h.Mu.Lock()
 			h.Clients[client] = true
+			client_len = len(h.Clients)
 			h.Mu.Unlock()
+			h.set_nof_clients(client_len)
 		case client := <-h.Unregister:
 			log.Printf("UnRegister WSClient")
-			h.Mu.Lock()
-			if _, ok := h.Clients[client]; ok {
-				delete(h.Clients, client)
-				close(client.Send)
+			client_len := 0
+			if h.Mu.TryLock() {
+				if _, ok := h.Clients[client]; ok {
+					delete(h.Clients, client)
+					close(client.Send)
+				}
+				h.Mu.Unlock()
+				client_len = len(h.Clients)
+				h.set_nof_clients(client_len)
+			} else {
+				go func() {
+					client_len := 0
+					h.Mu.Lock()
+					if _, ok := h.Clients[client]; ok {
+						delete(h.Clients, client)
+						close(client.Send)
+					}
+					client_len = len(h.Clients)
+					h.Mu.Unlock()
+					h.set_nof_clients(client_len)
+				}()
 			}
-			h.Mu.Unlock()
-		case <-time.After(time.Millisecond * 1000):
-			if len(h.Clients) > 0 {
-			}
+			//case <-time.After(time.Millisecond * 1000):
 		}
+	}
+}
+
+func (h *Hub) Close(message []byte) {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+
+	for client := range h.Clients {
+		client.conn.Close()
 	}
 }
 
@@ -229,11 +263,36 @@ func (h *Hub) SendBroadCastMsg(message []byte) {
 	}
 }
 
-func (h *Hub) Close(message []byte) {
-	h.Mu.Lock()
-	defer h.Mu.Unlock()
-
+func (h *Hub) SendBroadCastFilter(message []byte, typeData string, arg_name string) {
+	h.Mu.RLock()
+	defer h.Mu.RUnlock()
+	//
 	for client := range h.Clients {
-		client.conn.Close()
+		send_msg := false
+		if len(typeData) > 0 {
+			stream_args := client.GET_ARG[arg_name]
+			len_stream_args := len(stream_args)
+			if len_stream_args > 0 {
+				for i := 0; i < len_stream_args; i++ {
+					if typeData == stream_args[i] {
+						send_msg = true
+						break
+					}
+				}
+			} else {
+				send_msg = true
+			}
+		} else {
+			send_msg = true
+		}
+		if send_msg {
+			select {
+			case client.Send <- message:
+			default:
+				// overflow buffer send
+				// unregister client
+				h.Unregister <- client
+			}
+		}
 	}
 }
