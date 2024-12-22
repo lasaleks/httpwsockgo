@@ -95,6 +95,7 @@ type Client struct {
 	conn *websocket.Conn
 	// Buffered channel of outbound messages.
 	Send chan []byte
+	Host string
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -173,7 +174,7 @@ func (c *Client) writePump() {
 }
 
 func RequestsWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("RequestsWs:%s\n", r.URL.Path)
+	fmt.Printf("RequestsWs:%s %s\n", r.URL.Path, r.Host)
 	/*	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -184,7 +185,7 @@ func RequestsWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, hub.sizeBufferClient), GET_ARG: r.URL.Query()}
+	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, hub.sizeBufferClient), GET_ARG: r.URL.Query(), Host: r.Host}
 
 	client.hub.Register <- client
 
@@ -205,7 +206,7 @@ func (h *Hub) Run(wg *sync.WaitGroup, ctx context.Context) {
 			// log.Println("Hub run Done")
 			return
 		case client := <-h.Register:
-			log.Printf("Register WSClient")
+			log.Printf("Register WSClient host:%s", client.Host)
 			client_len := 0
 			h.Mu.Lock()
 			h.Clients[client] = true
@@ -213,27 +214,33 @@ func (h *Hub) Run(wg *sync.WaitGroup, ctx context.Context) {
 			h.Mu.Unlock()
 			h.set_nof_clients(client_len)
 		case client := <-h.Unregister:
-			log.Printf("UnRegister WSClient")
+			// log.Printf("UnRegister WSClient")
 			client_len := 0
+			host := ""
 			if h.Mu.TryLock() {
 				if _, ok := h.Clients[client]; ok {
 					delete(h.Clients, client)
 					close(client.Send)
+					host = client.Host
 				}
 				h.Mu.Unlock()
 				client_len = len(h.Clients)
 				h.set_nof_clients(client_len)
+				log.Printf("UnRegister WSClient host:%s", host)
 			} else {
 				go func() {
 					client_len := 0
+					host := ""
 					h.Mu.Lock()
 					if _, ok := h.Clients[client]; ok {
 						delete(h.Clients, client)
 						close(client.Send)
+						host = client.Host
 					}
 					client_len = len(h.Clients)
 					h.Mu.Unlock()
 					h.set_nof_clients(client_len)
+					log.Printf("UnRegister WSClient host:%s", host)
 				}()
 			}
 			//case <-time.After(time.Millisecond * 1000):
