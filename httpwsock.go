@@ -174,7 +174,7 @@ func (c *Client) writePump() {
 }
 
 func RequestsWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("RequestsWs:%s %s\n", r.URL.Path, r.Host)
+	fmt.Printf("RequestsWs:%s %s\n", r.URL.Path, r.RemoteAddr)
 	/*	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -185,7 +185,7 @@ func RequestsWebSocket(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		log.Println(err)
 		return
 	}
-	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, hub.sizeBufferClient), GET_ARG: r.URL.Query(), Host: r.Host}
+	client := &Client{hub: hub, conn: conn, Send: make(chan []byte, hub.sizeBufferClient), GET_ARG: r.URL.Query(), Host: r.RemoteAddr}
 
 	client.hub.Register <- client
 
